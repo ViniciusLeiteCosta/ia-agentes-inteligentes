@@ -3,347 +3,348 @@ agents.py
 ---------
 Três agentes que competem no mesmo labirinto, cada um com uma estratégia
 diferente para chegar ao objetivo. Todos compartilham a mesma interface
-(BaseAgent), então o jogo pode tratá-los de forma intercambiável.
+(AgenteBase), então o jogo pode tratá-los de forma intercambiável.
 
-1. AStarAgent      -> busca heurística A* (estado, objetivo, heurística)
-2. QLearningAgent  -> aprendizado por reforço (tabela Q treinada antes do jogo)
-3. GeneticAgent    -> algoritmo genético (evolui uma sequência de ações)
+1. AgenteAEstrela   -> busca heurística A* (estado, objetivo, heurística)
+2. AgenteQLearning  -> aprendizado por reforço (tabela Q treinada antes do jogo)
+3. AgenteGenetico   -> algoritmo genético (evolui uma sequência de ações)
 """
 
 import heapq
 import random
 
+from maze import MOVIMENTOS
 
-MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # cima, baixo, esquerda, direita
-N_ACTIONS = len(MOVES)
+N_ACOES = len(MOVIMENTOS)
 
 
-class BaseAgent:
-    def __init__(self, name, color, short_label=None):
-        self.name = name
-        self.short_label = short_label or name
-        self.color = color
-        self.pos = None
-        self.finished = False
-        self.steps_taken = 0
+def mover(labirinto, posicao, acao):
+    """Aplica uma ação a partir de `posicao` e devolve a célula resultante.
+    Se a ação esbarrar numa parede ou sair do grid, a posição não muda."""
+    dl, dc = MOVIMENTOS[acao]
+    candidata = (posicao[0] + dl, posicao[1] + dc)
+    if labirinto.dentro_dos_limites(candidata) and labirinto.passavel(posicao, candidata):
+        return candidata
+    return posicao
 
-    def prepare_round(self, maze, spawn):
-        """Chamado no início de cada rodada, com um novo ponto de spawn."""
-        self.pos = spawn
-        self.spawn = spawn
-        self.finished = False
-        self.steps_taken = 0
 
-    def step(self, maze):
+class AgenteBase:
+    def __init__(self, nome, cor, rotulo=None):
+        self.nome = nome
+        self.rotulo = rotulo or nome
+        self.cor = cor
+        self.posicao = None
+        self.concluido = False
+        self.passos_dados = 0
+        self.indice_caminho = 0  # usado pelos agentes que seguem uma lista de células
+
+    def preparar_rodada(self, labirinto, partida):
+        """Chamado no início de cada rodada, com um novo ponto de partida."""
+        self.posicao = partida
+        self.partida = partida
+        self.concluido = False
+        self.passos_dados = 0
+        self.indice_caminho = 0
+
+    def passo(self, labirinto):
         """Executa um passo no labirinto. Cada subclasse define sua estratégia."""
         raise NotImplementedError
+
+    def _seguir_celulas(self, labirinto, celulas):
+        """Avança uma célula por vez numa lista já calculada (usado pelos
+        agentes A* e Genético, que traçam o caminho inteiro de antemão)."""
+        if self.concluido:
+            return
+        if self.indice_caminho < len(celulas) - 1:
+            self.indice_caminho += 1
+            self.posicao = celulas[self.indice_caminho]
+            self.passos_dados += 1
+        if self.posicao == labirinto.objetivo:
+            self.concluido = True
 
 
 # ======================================================================
 # 1) AGENTE HEURÍSTICO -- Busca A*
 # ======================================================================
-class AStarAgent(BaseAgent):
+class AgenteAEstrela(AgenteBase):
     """
-    Estado: posição (linha, coluna). Objetivo: chegar em maze.goal.
+    Estado: posição (linha, coluna). Objetivo: chegar em labirinto.objetivo.
     Heurística: distância de Manhattan (admissível, pois cada passo custa 1
     e nunca é possível "cortar caminho" além do que ela prevê).
-    O caminho inteiro é calculado uma vez em prepare_round(); step() apenas
-    o percorre.
+    O caminho inteiro é calculado uma vez em preparar_rodada(); passo()
+    apenas o percorre.
     """
 
-    def __init__(self, color):
-        super().__init__("Busca Heurística (A*)", color, short_label="Heurística")
-        self.path = []
-        self.path_index = 0
+    def __init__(self, cor):
+        super().__init__("Busca Heurística (A*)", cor, rotulo="Heurística")
+        self.caminho = []
 
-    def prepare_round(self, maze, spawn):
-        super().prepare_round(maze, spawn)
-        self.path = self._a_star(maze, spawn, maze.goal)
-        self.path_index = 0
+    def preparar_rodada(self, labirinto, partida):
+        super().preparar_rodada(labirinto, partida)
+        self.caminho = self._busca_a_estrela(labirinto, partida, labirinto.objetivo)
 
     @staticmethod
-    def _heuristic(a, b):
+    def _heuristica(a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    def _a_star(self, maze, start, goal):
-        counter = 0  # desempate estável no heap (evita comparar tuplas com posições)
-        open_heap = [(self._heuristic(start, goal), counter, start)]
-        came_from = {}
-        g_score = {start: 0}
-        visited = set()
+    def _busca_a_estrela(self, labirinto, inicio, objetivo):
+        contador = 0  # desempate estável no heap (evita comparar posições)
+        fila_prioridade = [(self._heuristica(inicio, objetivo), contador, inicio)]
+        veio_de = {}
+        custo_g = {inicio: 0}
+        visitadas = set()
 
-        while open_heap:
-            _, _, current = heapq.heappop(open_heap)
-            if current in visited:
+        while fila_prioridade:
+            _, _, atual = heapq.heappop(fila_prioridade)
+            if atual in visitadas:
                 continue
-            visited.add(current)
+            visitadas.add(atual)
 
-            if current == goal:
-                return self._reconstruct(came_from, current)
+            if atual == objetivo:
+                return self._reconstruir_caminho(veio_de, atual)
 
-            for n in maze.neighbors(current):
-                if not maze.passable(current, n) or n in visited:
+            for vizinho in labirinto.vizinhos(atual):
+                if not labirinto.passavel(atual, vizinho) or vizinho in visitadas:
                     continue
-                tentative_g = g_score[current] + 1
-                if tentative_g < g_score.get(n, float("inf")):
-                    g_score[n] = tentative_g
-                    came_from[n] = current
-                    counter += 1
-                    heapq.heappush(open_heap, (tentative_g + self._heuristic(n, goal), counter, n))
+                novo_custo_g = custo_g[atual] + 1
+                if novo_custo_g < custo_g.get(vizinho, float("inf")):
+                    custo_g[vizinho] = novo_custo_g
+                    veio_de[vizinho] = atual
+                    contador += 1
+                    heapq.heappush(fila_prioridade, (novo_custo_g + self._heuristica(vizinho, objetivo), contador, vizinho))
 
-        return [start]  # objetivo inalcançável (não deve ocorrer em labirinto conectado)
+        return [inicio]  # objetivo inalcançável (não deve ocorrer em labirinto conectado)
 
     @staticmethod
-    def _reconstruct(came_from, current):
-        path = [current]
-        while current in came_from:
-            current = came_from[current]
-            path.append(current)
-        path.reverse()
-        return path
+    def _reconstruir_caminho(veio_de, atual):
+        caminho = [atual]
+        while atual in veio_de:
+            atual = veio_de[atual]
+            caminho.append(atual)
+        caminho.reverse()
+        return caminho
 
-    def step(self, maze):
-        if self.finished:
-            return
-        if self.path_index < len(self.path) - 1:
-            self.path_index += 1
-            self.pos = self.path[self.path_index]
-            self.steps_taken += 1
-        if self.pos == maze.goal:
-            self.finished = True
+    def passo(self, labirinto):
+        self._seguir_celulas(labirinto, self.caminho)
 
 
 # ======================================================================
 # 2) AGENTE DE APRENDIZADO POR REFORÇO -- Q-Learning
 # ======================================================================
-class QLearningAgent(BaseAgent):
+class AgenteQLearning(AgenteBase):
     """
     Estado: posição. Ação: {cima, baixo, esquerda, direita}.
     Recompensa: +100 no objetivo, -1 por passo, -5 ao esbarrar em parede.
     Atualização (Bellman): Q(s,a) += alpha * (r + gamma * max Q(s') - Q(s,a))
 
-    O agente é TREINADO offline (train()) antes da 1ª rodada, a partir de
-    todos os pontos de spawn possíveis. Durante o jogo ele age de forma
+    O agente é TREINADO offline (treinar()) antes da 1ª rodada, a partir de
+    todos os pontos de partida possíveis. Durante o jogo ele age de forma
     quase-gulosa (pequena chance de exploração), mostrando o que aprendeu.
     """
 
-    def __init__(self, color, alpha=0.2, gamma=0.9, epsilon_train=0.25,
-                 epsilon_play=0.05, train_episodes=6000):
-        super().__init__("Aprendizado por Reforço (Q-Learning)", color, short_label="Reforço")
-        self.alpha = alpha
-        self.gamma = gamma
-        self.epsilon_train = epsilon_train
-        self.epsilon_play = epsilon_play
-        self.train_episodes = train_episodes
-        self.q_table = {}
-        self.rng = random.Random()
-        self.trained = False
+    def __init__(self, cor, taxa_aprendizagem=0.2, fator_desconto=0.9,
+                 exploracao_treino=0.25, exploracao_jogo=0.05, episodios_treino=6000):
+        super().__init__("Aprendizado por Reforço (Q-Learning)", cor, rotulo="Reforço")
+        self.taxa_aprendizagem = taxa_aprendizagem
+        self.fator_desconto = fator_desconto
+        self.exploracao_treino = exploracao_treino
+        self.exploracao_jogo = exploracao_jogo
+        self.episodios_treino = episodios_treino
+        self.tabela_q = {}
+        self.aleatorio = random.Random()
+        self.treinado = False
 
-    def _get_q(self, state):
-        return self.q_table.setdefault(state, [0.0] * N_ACTIONS)
+    def _obter_q(self, estado):
+        return self.tabela_q.setdefault(estado, [0.0] * N_ACOES)
 
-    def _apply_move(self, maze, pos, action):
-        """Aplica uma ação e devolve (nova_posição, recompensa)."""
-        dr, dc = MOVES[action]
-        candidate = (pos[0] + dr, pos[1] + dc)
-        if maze.in_bounds(candidate) and maze.passable(pos, candidate):
-            reward = 100.0 if candidate == maze.goal else -1.0
-            return candidate, reward
-        return pos, -5.0  # bateu na parede: fica parado, penalidade
+    def _recompensa_do_movimento(self, labirinto, posicao, acao):
+        """Aplica a ação e devolve (nova_posição, recompensa)."""
+        nova_posicao = mover(labirinto, posicao, acao)
+        if nova_posicao == posicao:
+            return nova_posicao, -5.0  # bateu na parede: fica parado, penalidade
+        return nova_posicao, (100.0 if nova_posicao == labirinto.objetivo else -1.0)
 
-    def train(self, maze, spawn_pool):
+    def treinar(self, labirinto, pontos_partida):
         """Fase de treinamento offline (roda uma vez antes da 1ª rodada)."""
-        max_steps = maze.size * 8
-        for _ in range(self.train_episodes):
-            pos = self.rng.choice(spawn_pool)
-            steps = 0
-            while pos != maze.goal and steps < max_steps:
-                q = self._get_q(pos)
-                if self.rng.random() < self.epsilon_train:
-                    action = self.rng.randrange(N_ACTIONS)
+        max_passos = labirinto.tamanho * 8
+        for _ in range(self.episodios_treino):
+            posicao = self.aleatorio.choice(pontos_partida)
+            passos = 0
+            while posicao != labirinto.objetivo and passos < max_passos:
+                q = self._obter_q(posicao)
+                if self.aleatorio.random() < self.exploracao_treino:
+                    acao = self.aleatorio.randrange(N_ACOES)
                 else:
-                    action = max(range(N_ACTIONS), key=lambda a: q[a])
+                    acao = max(range(N_ACOES), key=lambda a: q[a])
 
-                new_pos, reward = self._apply_move(maze, pos, action)
-                next_q = self._get_q(new_pos)
-                q[action] += self.alpha * (reward + self.gamma * max(next_q) - q[action])
-                pos = new_pos
-                steps += 1
-        self.trained = True
+                nova_posicao, recompensa = self._recompensa_do_movimento(labirinto, posicao, acao)
+                proximo_q = self._obter_q(nova_posicao)
+                q[acao] += self.taxa_aprendizagem * (recompensa + self.fator_desconto * max(proximo_q) - q[acao])
+                posicao = nova_posicao
+                passos += 1
+        self.treinado = True
 
-    def prepare_round(self, maze, spawn):
-        super().prepare_round(maze, spawn)
-        self.best_distance_seen = maze.distances.get(spawn, 10 ** 6)
-        self.stall_counter = 0
+    def preparar_rodada(self, labirinto, partida):
+        super().preparar_rodada(labirinto, partida)
+        self.melhor_distancia_vista = labirinto.distancias.get(partida, 10 ** 6)
+        self.contador_estagnado = 0
 
-    def step(self, maze):
-        if self.finished:
+    def passo(self, labirinto):
+        if self.concluido:
             return
 
         # Como a rodada só termina quando TODOS os agentes chegam, o agente
         # não pode ficar preso oscilando entre duas células por causa de
         # valores de Q empatados. Se ficar muito tempo sem se aproximar do
         # objetivo, aumentamos temporariamente a exploração.
-        effective_epsilon = self.epsilon_play if self.stall_counter <= 60 else 0.6
+        exploracao_efetiva = self.exploracao_jogo if self.contador_estagnado <= 60 else 0.6
 
-        q = self._get_q(self.pos)
-        if self.rng.random() < effective_epsilon:
-            action = self.rng.randrange(N_ACTIONS)
+        q = self._obter_q(self.posicao)
+        if self.aleatorio.random() < exploracao_efetiva:
+            acao = self.aleatorio.randrange(N_ACOES)
         else:
-            best_value = max(q)
-            best_actions = [a for a in range(N_ACTIONS) if q[a] == best_value]
-            action = self.rng.choice(best_actions)  # desempate aleatório evita ciclos
+            melhor_valor = max(q)
+            melhores_acoes = [a for a in range(N_ACOES) if q[a] == melhor_valor]
+            acao = self.aleatorio.choice(melhores_acoes)  # desempate aleatório evita ciclos
 
-        self.pos, _ = self._apply_move(maze, self.pos, action)
-        self.steps_taken += 1
+        self.posicao, _ = self._recompensa_do_movimento(labirinto, self.posicao, acao)
+        self.passos_dados += 1
 
-        current_distance = maze.distances.get(self.pos, self.best_distance_seen)
-        if current_distance < self.best_distance_seen:
-            self.best_distance_seen = current_distance
-            self.stall_counter = 0
+        distancia_atual = labirinto.distancias.get(self.posicao, self.melhor_distancia_vista)
+        if distancia_atual < self.melhor_distancia_vista:
+            self.melhor_distancia_vista = distancia_atual
+            self.contador_estagnado = 0
         else:
-            self.stall_counter += 1
+            self.contador_estagnado += 1
 
-        if self.pos == maze.goal:
-            self.finished = True
+        if self.posicao == labirinto.objetivo:
+            self.concluido = True
 
 
 # ======================================================================
 # 3) AGENTE DE ALGORITMO GENÉTICO
 # ======================================================================
-class GeneticAgent(BaseAgent):
+class AgenteGenetico(AgenteBase):
     """
     Indivíduo: sequência fixa de ações (genes em 0..3).
     Aptidão: quanto mais perto do objetivo o indivíduo termina (distância
     BFS real) e quanto menos passos usar, maior a aptidão -- com um grande
     bônus por realmente alcançar o objetivo.
 
-    Como o spawn muda a cada rodada, a população EVOLUI DE NOVO no início
-    de cada rodada (prepare_round), mostrando seleção, cruzamento e
-    mutação "ao vivo". Se não convergir dentro do orçamento normal de
-    gerações, tentamos de novo com cromossomos maiores; como última rede
-    de segurança, completamos o trajeto final com o caminho mais curto
-    (BFS) -- o que fica registrado em used_rescue_fallback.
+    Como o ponto de partida muda a cada rodada, a população EVOLUI DE NOVO
+    no início de cada rodada (preparar_rodada), mostrando seleção,
+    cruzamento e mutação "ao vivo". Se não convergir dentro do orçamento
+    normal de gerações, tentamos de novo com cromossomos maiores; como
+    última rede de segurança, completamos o trajeto final com o caminho
+    mais curto (BFS) -- o que fica registrado em usou_resgate.
     """
 
-    def __init__(self, color, population_size=100, generations=150,
-                 mutation_rate=0.06, elite_fraction=0.1):
-        super().__init__("Algoritmo Genético", color, short_label="Genético")
-        self.population_size = population_size
-        self.generations = generations
-        self.mutation_rate = mutation_rate
-        self.elite_fraction = elite_fraction
-        self.rng = random.Random()
-        self.best_path_cells = []
-        self.path_index = 0
-        self.last_fitness_history = []  # para depuração/relatório
-        self.used_rescue_fallback = False  # True se precisou da rede de segurança
+    def __init__(self, cor, tamanho_populacao=1500, geracoes=100,
+                 taxa_mutacao=0.06, fracao_elite=0.1):
+        super().__init__("Algoritmo Genético", cor, rotulo="Genético")
+        self.tamanho_populacao = tamanho_populacao
+        self.geracoes = geracoes
+        self.taxa_mutacao = taxa_mutacao
+        self.fracao_elite = fracao_elite
+        self.aleatorio = random.Random()
+        self.melhores_celulas = []
+        self.historico_aptidao = []  # para depuração/relatório
+        self.usou_resgate = False    # True se precisou da rede de segurança
 
-    def prepare_round(self, maze, spawn):
-        super().prepare_round(maze, spawn)
-        self.used_rescue_fallback = False
+    def preparar_rodada(self, labirinto, partida):
+        super().preparar_rodada(labirinto, partida)
+        self.usou_resgate = False
 
-        chromo_len = maze.size * 3
-        generations = self.generations
-        cells, history = None, []
+        tamanho_cromossomo = labirinto.tamanho * 3
+        geracoes = self.geracoes
+        celulas, historico = None, []
 
-        for _attempt in range(5):
-            best_chromo, history = self._evolve(maze, spawn, chromo_len, generations)
-            cells = self._simulate(maze, spawn, best_chromo)
-            if cells[-1] == maze.goal:
+        for _tentativa in range(5):
+            melhor_cromossomo, historico = self._evoluir(labirinto, partida, tamanho_cromossomo, geracoes)
+            celulas = self._simular(labirinto, partida, melhor_cromossomo)
+            if celulas[-1] == labirinto.objetivo:
                 break
             # Não convergiu: dá mais "material genético" e mais tempo.
-            chromo_len = int(chromo_len * 1.6)
-            generations = int(generations * 1.4)
+            tamanho_cromossomo = int(tamanho_cromossomo * 1.6)
+            geracoes = int(geracoes * 1.4)
 
-        if cells[-1] != maze.goal:
-            rescue = maze.shortest_path(cells[-1], maze.goal)
-            if rescue:
-                cells = cells + rescue[1:]
-                self.used_rescue_fallback = True
+        if celulas[-1] != labirinto.objetivo:
+            resgate = labirinto.caminho_mais_curto(celulas[-1], labirinto.objetivo)
+            if resgate:
+                celulas = celulas + resgate[1:]
+                self.usou_resgate = True
 
-        self.last_fitness_history = history
-        self.best_path_cells = cells
-        self.path_index = 0
+        self.historico_aptidao = historico
+        self.melhores_celulas = celulas
 
-    def _random_chromosome(self, length):
-        return [self.rng.randrange(N_ACTIONS) for _ in range(length)]
+    def _cromossomo_aleatorio(self, tamanho):
+        return [self.aleatorio.randrange(N_ACOES) for _ in range(tamanho)]
 
-    def _simulate(self, maze, spawn, chromosome):
-        """Executa um cromossomo passo a passo e devolve a lista de células visitadas."""
-        pos = spawn
-        cells = [pos]
-        for gene in chromosome:
-            dr, dc = MOVES[gene]
-            candidate = (pos[0] + dr, pos[1] + dc)
-            if maze.in_bounds(candidate) and maze.passable(pos, candidate):
-                pos = candidate
-            cells.append(pos)
-            if pos == maze.goal:
+    def _simular(self, labirinto, partida, cromossomo):
+        """Executa um cromossomo passo a passo e devolve as células visitadas."""
+        posicao = partida
+        celulas = [posicao]
+        for gene in cromossomo:
+            posicao = mover(labirinto, posicao, gene)
+            celulas.append(posicao)
+            if posicao == labirinto.objetivo:
                 break
-        return cells
+        return celulas
 
-    def _fitness(self, maze, spawn, chromosome):
-        cells = self._simulate(maze, spawn, chromosome)
-        final = cells[-1]
-        steps_used = len(cells) - 1
-        dist_to_goal = maze.distances.get(final, maze.size * 2)
-        score = -dist_to_goal * 10 - steps_used * 0.05
-        if final == maze.goal:
-            score += 2000 - steps_used
-        return score
+    def _aptidao(self, labirinto, partida, cromossomo):
+        celulas = self._simular(labirinto, partida, cromossomo)
+        final = celulas[-1]
+        passos_usados = len(celulas) - 1
+        distancia_ao_objetivo = labirinto.distancias.get(final, labirinto.tamanho * 2)
+        nota = -distancia_ao_objetivo * 10 - passos_usados * 0.05
+        if final == labirinto.objetivo:
+            nota += 2000 - passos_usados
+        return nota
 
-    def _tournament(self, ranked, k=5):
+    def _torneio(self, ranqueados, k=5):
         """Seleção por torneio: sorteia k indivíduos e devolve o melhor deles.
-        `ranked` já está ordenado do melhor para o pior fitness."""
-        idx = sorted(self.rng.sample(range(len(ranked)), min(k, len(ranked))))
-        return ranked[idx[0]][0]
+        `ranqueados` já está ordenado do melhor para o pior fitness."""
+        indices = sorted(self.aleatorio.sample(range(len(ranqueados)), min(k, len(ranqueados))))
+        return ranqueados[indices[0]][0]
 
-    def _crossover(self, parent1, parent2):
-        if len(parent1) < 2:
-            return parent1[:]
-        point = self.rng.randrange(1, len(parent1))
-        return parent1[:point] + parent2[point:]
+    def _cruzamento(self, pai1, pai2):
+        if len(pai1) < 2:
+            return pai1[:]
+        ponto = self.aleatorio.randrange(1, len(pai1))
+        return pai1[:ponto] + pai2[ponto:]
 
-    def _mutate(self, chromosome):
-        return [self.rng.randrange(N_ACTIONS) if self.rng.random() < self.mutation_rate else gene
-                for gene in chromosome]
+    def _mutacao(self, cromossomo):
+        return [self.aleatorio.randrange(N_ACOES) if self.aleatorio.random() < self.taxa_mutacao else gene
+                for gene in cromossomo]
 
-    def _evolve(self, maze, spawn, chromo_len, generations):
-        population = [self._random_chromosome(chromo_len) for _ in range(self.population_size)]
-        best_overall, best_fitness_overall = None, float("-inf")
-        history = []
+    def _evoluir(self, labirinto, partida, tamanho_cromossomo, geracoes):
+        populacao = [self._cromossomo_aleatorio(tamanho_cromossomo) for _ in range(self.tamanho_populacao)]
+        melhor_geral, melhor_aptidao_geral = None, float("-inf")
+        historico = []
 
-        for _gen in range(generations):
-            ranked = sorted(
-                ((c, self._fitness(maze, spawn, c)) for c in population),
-                key=lambda pair: pair[1],
+        for _geracao in range(geracoes):
+            ranqueados = sorted(
+                ((c, self._aptidao(labirinto, partida, c)) for c in populacao),
+                key=lambda par: par[1],
                 reverse=True,
             )
-            history.append(ranked[0][1])
-            if ranked[0][1] > best_fitness_overall:
-                best_fitness_overall = ranked[0][1]
-                best_overall = ranked[0][0]
+            historico.append(ranqueados[0][1])
+            if ranqueados[0][1] > melhor_aptidao_geral:
+                melhor_aptidao_geral = ranqueados[0][1]
+                melhor_geral = ranqueados[0][0]
 
-            n_elite = max(2, int(self.population_size * self.elite_fraction))
-            next_gen = [c for c, _ in ranked[:n_elite]]  # elitismo: os melhores passam direto
+            n_elite = max(2, int(self.tamanho_populacao * self.fracao_elite))
+            proxima_geracao = [c for c, _ in ranqueados[:n_elite]]  # elitismo: os melhores passam direto
 
-            while len(next_gen) < self.population_size:
-                parent1 = self._tournament(ranked)
-                parent2 = self._tournament(ranked)
-                child = self._mutate(self._crossover(parent1, parent2))
-                next_gen.append(child)
+            while len(proxima_geracao) < self.tamanho_populacao:
+                pai1 = self._torneio(ranqueados)
+                pai2 = self._torneio(ranqueados)
+                filho = self._mutacao(self._cruzamento(pai1, pai2))
+                proxima_geracao.append(filho)
 
-            population = next_gen
+            populacao = proxima_geracao
 
-        return best_overall, history
+        return melhor_geral, historico
 
-    def step(self, maze):
-        if self.finished:
-            return
-        if self.path_index < len(self.best_path_cells) - 1:
-            self.path_index += 1
-            self.pos = self.best_path_cells[self.path_index]
-            self.steps_taken += 1
-        if self.pos == maze.goal:
-            self.finished = True
+    def passo(self, labirinto):
+        self._seguir_celulas(labirinto, self.melhores_celulas)

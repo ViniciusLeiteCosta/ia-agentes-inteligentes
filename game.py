@@ -3,384 +3,384 @@ game.py
 -------
 Interface visual (pygame) da competição entre os três agentes.
 
-- Spawns fixos, sorteados a cada rodada com distância justa: ver
-  maze.py (Maze._select_fair_spawns) e _start_round() abaixo.
-- Camada de sobreposição (2+ agentes na mesma célula): draw_agents_layer().
-- Placar por rodada: _finish_round().
-- Botões de reiniciar e pular rodada: _handle_click().
+- Pontos de partida fixos, sorteados a cada rodada com distância justa:
+  ver maze.py (Labirinto._selecionar_pontos_justos) e _iniciar_rodada() abaixo.
+- Camada de sobreposição (2+ agentes na mesma célula): desenhar_camada_agentes().
+- Placar por rodada: _encerrar_rodada().
+- Botões de reiniciar e pular rodada: _tratar_clique().
 """
 
 import random
 import sys
 import pygame
 
-from maze import Maze
-from agents import AStarAgent, QLearningAgent, GeneticAgent
+from maze import Labirinto
+from agents import AgenteAEstrela, AgenteQLearning, AgenteGenetico
 
 
 # ----------------------------------------------------------------------
 # Configurações visuais e de jogo
 # ----------------------------------------------------------------------
-CELL_SIZE = 26
-MAZE_SIZE = 17            # labirinto médio (17x17 células)
-EXTRA_CONNECTIONS = 0.15  # fração de paredes extras abertas -> mais caminhos
-N_SPAWNS = 4              # pontos fixos de spawn (>= número de agentes)
-STEP_DELAY_MS = 140       # velocidade de animação (ms entre passos dos agentes)
-TOTAL_ROUNDS = 3
+TAMANHO_CELULA = 26
+TAMANHO_LABIRINTO = 17     # labirinto médio (17x17 células)
+CONEXOES_EXTRAS = 0.15     # fração de paredes extras abertas -> mais caminhos
+N_PONTOS_PARTIDA = 4       # pontos fixos de partida (>= número de agentes)
+ATRASO_PASSO_MS = 140      # velocidade de animação (ms entre passos dos agentes)
+TOTAL_RODADAS = 10
 
-SIDEBAR_WIDTH = 300
-MARGIN = 20
+LARGURA_PAINEL = 300
+MARGEM = 20
 
-COLOR_BG = (250, 248, 240)
-COLOR_WALL = (40, 40, 40)
-COLOR_MAZE_BG = (255, 255, 255)
-COLOR_GOAL = (220, 60, 60)
-COLOR_SPAWN_MARK = (120, 120, 200)
-COLOR_OVERLAP_BG = (255, 210, 0)
-COLOR_OVERLAP_BORDER = (170, 110, 0)
-COLOR_TEXT = (30, 30, 30)
-COLOR_BUTTON = (70, 110, 200)
-COLOR_BUTTON_HOVER = (95, 135, 225)
-COLOR_BUTTON_TEXT = (255, 255, 255)
-COLOR_PANEL = (235, 235, 245)
-COLOR_DIVIDER = (200, 200, 210)
+COR_FUNDO = (250, 248, 240)
+COR_PAREDE = (40, 40, 40)
+COR_FUNDO_LABIRINTO = (255, 255, 255)
+COR_OBJETIVO = (220, 60, 60)
+COR_MARCA_PARTIDA = (120, 120, 200)
+COR_SOBREPOSICAO_FUNDO = (255, 210, 0)
+COR_SOBREPOSICAO_BORDA = (170, 110, 0)
+COR_TEXTO = (30, 30, 30)
+COR_BOTAO = (70, 110, 200)
+COR_BOTAO_HOVER = (95, 135, 225)
+COR_TEXTO_BOTAO = (255, 255, 255)
+COR_PAINEL = (235, 235, 245)
+COR_DIVISOR = (200, 200, 210)
 
-AGENT_COLORS = {
-    "astar": (220, 40, 40),   # vermelho
-    "rl": (30, 100, 220),     # azul
-    "ga": (30, 160, 60),      # verde
+CORES_AGENTES = {
+    "astar": (220, 40, 40),  # vermelho
+    "rl": (30, 100, 220),    # azul
+    "ga": (30, 160, 60),     # verde
 }
 
-PLACEMENT_POINTS = [3, 2, 1]  # pontos para 1º, 2º, 3º lugar
+PONTOS_COLOCACAO = [3, 2, 1]  # pontos para 1º, 2º, 3º lugar
 
 
-class Button:
-    def __init__(self, rect, label):
-        self.rect = pygame.Rect(rect)
-        self.label = label
+class Botao:
+    def __init__(self, retangulo, rotulo):
+        self.retangulo = pygame.Rect(retangulo)
+        self.rotulo = rotulo
 
-    def draw(self, screen, font, mouse_pos):
-        color = COLOR_BUTTON_HOVER if self.rect.collidepoint(mouse_pos) else COLOR_BUTTON
-        pygame.draw.rect(screen, color, self.rect, border_radius=8)
-        pygame.draw.rect(screen, (30, 30, 30), self.rect, width=2, border_radius=8)
-        text = font.render(self.label, True, COLOR_BUTTON_TEXT)
-        screen.blit(text, text.get_rect(center=self.rect.center))
+    def desenhar(self, tela, fonte, posicao_mouse):
+        cor = COR_BOTAO_HOVER if self.retangulo.collidepoint(posicao_mouse) else COR_BOTAO
+        pygame.draw.rect(tela, cor, self.retangulo, border_radius=8)
+        pygame.draw.rect(tela, (30, 30, 30), self.retangulo, width=2, border_radius=8)
+        texto = fonte.render(self.rotulo, True, COR_TEXTO_BOTAO)
+        tela.blit(texto, texto.get_rect(center=self.retangulo.center))
 
-    def is_clicked(self, pos):
-        return self.rect.collidepoint(pos)
+    def foi_clicado(self, posicao):
+        return self.retangulo.collidepoint(posicao)
 
 
-class GameApp:
+class Jogo:
     def __init__(self):
         pygame.init()
         pygame.display.set_caption("Competição de Agentes Inteligentes - Labirinto")
 
-        maze_pixels = MAZE_SIZE * CELL_SIZE
-        self.origin = (MARGIN, MARGIN + 40)
-        width = maze_pixels + SIDEBAR_WIDTH + MARGIN * 3
-        height = max(maze_pixels + MARGIN * 2 + 40, 560)
-        self.screen = pygame.display.set_mode((width, height))
-        self.clock = pygame.time.Clock()
+        pixels_labirinto = TAMANHO_LABIRINTO * TAMANHO_CELULA
+        self.origem = (MARGEM, MARGEM + 40)
+        largura = pixels_labirinto + LARGURA_PAINEL + MARGEM * 3
+        altura = max(pixels_labirinto + MARGEM * 2 + 40, 560)
+        self.tela = pygame.display.set_mode((largura, altura))
+        self.relogio = pygame.time.Clock()
 
-        self.font = pygame.font.SysFont("arial", 16)
-        self.font_bold = pygame.font.SysFont("arial", 18, bold=True)
-        self.font_title = pygame.font.SysFont("arial", 24, bold=True)
+        self.fonte = pygame.font.SysFont("arial", 16)
+        self.fonte_negrito = pygame.font.SysFont("arial", 18, bold=True)
+        self.fonte_titulo = pygame.font.SysFont("arial", 24, bold=True)
 
-        self.rng = random.Random()
-        self.total_rounds = TOTAL_ROUNDS
+        self.aleatorio = random.Random()
+        self.total_rodadas = TOTAL_RODADAS
 
-        self.agents = [
-            AStarAgent(AGENT_COLORS["astar"]),
-            QLearningAgent(AGENT_COLORS["rl"]),
-            GeneticAgent(AGENT_COLORS["ga"]),
+        self.agentes = [
+            AgenteAEstrela(CORES_AGENTES["astar"]),
+            AgenteQLearning(CORES_AGENTES["rl"]),
+            AgenteGenetico(CORES_AGENTES["ga"]),
         ]
 
-        btn_x = self.origin[0] + maze_pixels + MARGIN
-        self.btn_restart = Button((btn_x, height - 120, SIDEBAR_WIDTH - MARGIN, 44), "Reiniciar Jogo")
-        self.btn_next = Button((btn_x, height - 64, SIDEBAR_WIDTH - MARGIN, 44), "Pular / Próxima Rodada")
+        x_botoes = self.origem[0] + pixels_labirinto + MARGEM
+        self.botao_reiniciar = Botao((x_botoes, altura - 120, LARGURA_PAINEL - MARGEM, 44), "Reiniciar Jogo")
+        self.botao_proxima = Botao((x_botoes, altura - 64, LARGURA_PAINEL - MARGEM, 44), "Pular / Próxima Rodada")
 
-        self.status_message = ""
-        self._full_restart()
+        self.mensagem_status = ""
+        self._reiniciar_tudo()
 
     # ------------------------------------------------------------------
     # Ciclo de vida do jogo
     # ------------------------------------------------------------------
-    def _full_restart(self):
-        self.round_num = 0
-        self.game_over = False
-        self.scores = {a.name: 0 for a in self.agents}
-        self.rounds_history = []
-        self.maze = Maze(size=MAZE_SIZE, extra_connections=EXTRA_CONNECTIONS, n_spawns=N_SPAWNS)
+    def _reiniciar_tudo(self):
+        self.numero_rodada = 0
+        self.jogo_encerrado = False
+        self.placar = {a.nome: 0 for a in self.agentes}
+        self.historico_rodadas = []
+        self.labirinto = Labirinto(tamanho=TAMANHO_LABIRINTO, conexoes_extras=CONEXOES_EXTRAS, n_pontos_partida=N_PONTOS_PARTIDA)
 
-        self.status_message = "Treinando o agente de aprendizado por reforço..."
-        self._render_status_only()
-        rl_agent = next(a for a in self.agents if isinstance(a, QLearningAgent))
-        rl_agent.train(self.maze, self.maze.spawn_points)
+        self.mensagem_status = "Treinando o agente de aprendizado por reforço..."
+        self._mostrar_status()
+        agente_rl = next(a for a in self.agentes if isinstance(a, AgenteQLearning))
+        agente_rl.treinar(self.labirinto, self.labirinto.pontos_partida)
 
-        self._start_round()
+        self._iniciar_rodada()
 
-    def _start_round(self):
-        self.round_num += 1
-        pool = list(self.maze.spawn_points)
-        self.rng.shuffle(pool)
-        assignments = pool[: len(self.agents)]
+    def _iniciar_rodada(self):
+        self.numero_rodada += 1
+        disponiveis = list(self.labirinto.pontos_partida)
+        self.aleatorio.shuffle(disponiveis)
+        sorteados = disponiveis[: len(self.agentes)]
 
-        self.status_message = "Calculando plano do agente genético..."
-        self._render_status_only()
+        self.mensagem_status = "Calculando plano do agente genético..."
+        self._mostrar_status()
 
-        for agent, spawn in zip(self.agents, assignments):
-            agent.prepare_round(self.maze, spawn)
+        for agente, partida in zip(self.agentes, sorteados):
+            agente.preparar_rodada(self.labirinto, partida)
 
-        self.round_finish_order = []
-        self.round_active = True
-        self.last_step_time = pygame.time.get_ticks()
-        self.status_message = f"Rodada {self.round_num} de {self.total_rounds} em andamento..."
+        self.ordem_chegada = []
+        self.rodada_ativa = True
+        self.tempo_ultimo_passo = pygame.time.get_ticks()
+        self.mensagem_status = f"Rodada {self.numero_rodada} de {self.total_rodadas} em andamento..."
 
-    def _finish_round(self):
-        order = list(self.round_finish_order)
-        remaining = [a for a in self.agents if a not in order]
-        remaining.sort(key=lambda a: self.maze.distances.get(a.pos, 10 ** 6))
-        full_order = order + remaining
+    def _encerrar_rodada(self):
+        ordem = list(self.ordem_chegada)
+        restantes = [a for a in self.agentes if a not in ordem]
+        restantes.sort(key=lambda a: self.labirinto.distancias.get(a.posicao, 10 ** 6))
+        ordem_final = ordem + restantes
 
-        for i, agent in enumerate(full_order):
-            points = PLACEMENT_POINTS[i] if i < len(PLACEMENT_POINTS) else 0
-            self.scores[agent.name] += points
+        for i, agente in enumerate(ordem_final):
+            pontos = PONTOS_COLOCACAO[i] if i < len(PONTOS_COLOCACAO) else 0
+            self.placar[agente.nome] += pontos
 
-        self.rounds_history.append([(a.name, a.finished, a.steps_taken) for a in full_order])
-        self.round_active = False
+        self.historico_rodadas.append([(a.nome, a.concluido, a.passos_dados) for a in ordem_final])
+        self.rodada_ativa = False
 
-        if self.round_num >= self.total_rounds:
-            self.game_over = True
-            self.status_message = "Jogo concluído! Veja o placar final."
+        if self.numero_rodada >= self.total_rodadas:
+            self.jogo_encerrado = True
+            self.mensagem_status = "Jogo concluído! Veja o placar final."
         else:
-            names = " > ".join(a.short_label for a in full_order)
-            self.status_message = f"Rodada {self.round_num} encerrada: {names}"
+            nomes = " > ".join(a.rotulo for a in ordem_final)
+            self.mensagem_status = f"Rodada {self.numero_rodada} encerrada: {nomes}"
 
-    def update(self):
-        if not self.round_active:
+    def atualizar(self):
+        if not self.rodada_ativa:
             return
-        now = pygame.time.get_ticks()
-        if now - self.last_step_time < STEP_DELAY_MS:
+        agora = pygame.time.get_ticks()
+        if agora - self.tempo_ultimo_passo < ATRASO_PASSO_MS:
             return
-        self.last_step_time = now
+        self.tempo_ultimo_passo = agora
 
-        for agent in self.agents:
-            if not agent.finished:
-                agent.step(self.maze)
-                if agent.finished and agent not in self.round_finish_order:
-                    self.round_finish_order.append(agent)
+        for agente in self.agentes:
+            if not agente.concluido:
+                agente.passo(self.labirinto)
+                if agente.concluido and agente not in self.ordem_chegada:
+                    self.ordem_chegada.append(agente)
 
         # A rodada só termina automaticamente quando TODOS os agentes
         # chegam ao objetivo (ou quando o usuário clica em "Pular").
-        if all(a.finished for a in self.agents):
-            self._finish_round()
+        if all(a.concluido for a in self.agentes):
+            self._encerrar_rodada()
 
     # ------------------------------------------------------------------
     # Entrada do usuário
     # ------------------------------------------------------------------
-    def _handle_click(self, pos):
-        if self.btn_restart.is_clicked(pos):
-            self._full_restart()
+    def _tratar_clique(self, posicao):
+        if self.botao_reiniciar.foi_clicado(posicao):
+            self._reiniciar_tudo()
             return
-        if self.btn_next.is_clicked(pos):
-            if self.game_over:
+        if self.botao_proxima.foi_clicado(posicao):
+            if self.jogo_encerrado:
                 return
-            if self.round_active:
-                self._finish_round()
-            if not self.game_over:
-                self._start_round()
+            if self.rodada_ativa:
+                self._encerrar_rodada()
+            if not self.jogo_encerrado:
+                self._iniciar_rodada()
 
     # ------------------------------------------------------------------
     # Desenho
     # ------------------------------------------------------------------
-    def draw_maze(self):
-        ox, oy = self.origin
-        size_px = self.maze.size * CELL_SIZE
-        pygame.draw.rect(self.screen, COLOR_MAZE_BG, (ox, oy, size_px, size_px))
+    def desenhar_labirinto(self):
+        ox, oy = self.origem
+        tamanho_px = self.labirinto.tamanho * TAMANHO_CELULA
+        pygame.draw.rect(self.tela, COR_FUNDO_LABIRINTO, (ox, oy, tamanho_px, tamanho_px))
 
-        for r in range(self.maze.size):
-            for c in range(self.maze.size):
-                cell = (r, c)
-                x, y = ox + c * CELL_SIZE, oy + r * CELL_SIZE
-                right, down = (r, c + 1), (r + 1, c)
-                if not self.maze.in_bounds(right) or not self.maze.passable(cell, right):
-                    pygame.draw.line(self.screen, COLOR_WALL, (x + CELL_SIZE, y), (x + CELL_SIZE, y + CELL_SIZE), 3)
-                if not self.maze.in_bounds(down) or not self.maze.passable(cell, down):
-                    pygame.draw.line(self.screen, COLOR_WALL, (x, y + CELL_SIZE), (x + CELL_SIZE, y + CELL_SIZE), 3)
+        for linha in range(self.labirinto.tamanho):
+            for coluna in range(self.labirinto.tamanho):
+                celula = (linha, coluna)
+                x, y = ox + coluna * TAMANHO_CELULA, oy + linha * TAMANHO_CELULA
+                direita, abaixo = (linha, coluna + 1), (linha + 1, coluna)
+                if not self.labirinto.dentro_dos_limites(direita) or not self.labirinto.passavel(celula, direita):
+                    pygame.draw.line(self.tela, COR_PAREDE, (x + TAMANHO_CELULA, y), (x + TAMANHO_CELULA, y + TAMANHO_CELULA), 3)
+                if not self.labirinto.dentro_dos_limites(abaixo) or not self.labirinto.passavel(celula, abaixo):
+                    pygame.draw.line(self.tela, COR_PAREDE, (x, y + TAMANHO_CELULA), (x + TAMANHO_CELULA, y + TAMANHO_CELULA), 3)
 
-        pygame.draw.line(self.screen, COLOR_WALL, (ox, oy), (ox, oy + size_px), 3)
-        pygame.draw.line(self.screen, COLOR_WALL, (ox, oy), (ox + size_px, oy), 3)
+        pygame.draw.line(self.tela, COR_PAREDE, (ox, oy), (ox, oy + tamanho_px), 3)
+        pygame.draw.line(self.tela, COR_PAREDE, (ox, oy), (ox + tamanho_px, oy), 3)
 
-        # pontos fixos de spawn (referência visual, mesmo os não usados na rodada)
-        for sr, sc in self.maze.spawn_points:
-            cx, cy = ox + sc * CELL_SIZE + CELL_SIZE // 2, oy + sr * CELL_SIZE + CELL_SIZE // 2
-            pygame.draw.circle(self.screen, COLOR_SPAWN_MARK, (cx, cy), 4)
+        # pontos fixos de partida (referência visual, mesmo os não usados na rodada)
+        for lin, col in self.labirinto.pontos_partida:
+            cx, cy = ox + col * TAMANHO_CELULA + TAMANHO_CELULA // 2, oy + lin * TAMANHO_CELULA + TAMANHO_CELULA // 2
+            pygame.draw.circle(self.tela, COR_MARCA_PARTIDA, (cx, cy), 4)
 
-        gr, gc = self.maze.goal
+        lg, cg = self.labirinto.objetivo
         pygame.draw.rect(
-            self.screen, COLOR_GOAL,
-            (ox + gc * CELL_SIZE + 4, oy + gr * CELL_SIZE + 4, CELL_SIZE - 8, CELL_SIZE - 8),
+            self.tela, COR_OBJETIVO,
+            (ox + cg * TAMANHO_CELULA + 4, oy + lg * TAMANHO_CELULA + 4, TAMANHO_CELULA - 8, TAMANHO_CELULA - 8),
             border_radius=4,
         )
 
-    def draw_agents_layer(self):
+    def desenhar_camada_agentes(self):
         """Destaca em amarelo qualquer célula onde 2+ agentes estejam juntos,
         desenhando cada um em um quadrante da célula para todos ficarem visíveis."""
-        ox, oy = self.origin
-        groups = {}
-        for agent in self.agents:
-            groups.setdefault(agent.pos, []).append(agent)
+        ox, oy = self.origem
+        grupos = {}
+        for agente in self.agentes:
+            grupos.setdefault(agente.posicao, []).append(agente)
 
-        offsets_2x2 = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        deslocamentos_2x2 = [(0, 0), (1, 0), (0, 1), (1, 1)]
 
-        for (r, c), group in groups.items():
-            x, y = ox + c * CELL_SIZE, oy + r * CELL_SIZE
+        for (linha, coluna), grupo in grupos.items():
+            x, y = ox + coluna * TAMANHO_CELULA, oy + linha * TAMANHO_CELULA
 
-            if len(group) > 1:
-                pygame.draw.rect(self.screen, COLOR_OVERLAP_BG, (x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2))
-                pygame.draw.rect(self.screen, COLOR_OVERLAP_BORDER, (x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2), 2)
+            if len(grupo) > 1:
+                pygame.draw.rect(self.tela, COR_SOBREPOSICAO_FUNDO, (x + 1, y + 1, TAMANHO_CELULA - 2, TAMANHO_CELULA - 2))
+                pygame.draw.rect(self.tela, COR_SOBREPOSICAO_BORDA, (x + 1, y + 1, TAMANHO_CELULA - 2, TAMANHO_CELULA - 2), 2)
 
-            if len(group) == 1:
-                cx, cy = x + CELL_SIZE // 2, y + CELL_SIZE // 2
-                radius = max(CELL_SIZE // 2 - 4, 3)
-                pygame.draw.circle(self.screen, group[0].color, (cx, cy), radius)
-                pygame.draw.circle(self.screen, (0, 0, 0), (cx, cy), radius, 1)
+            if len(grupo) == 1:
+                cx, cy = x + TAMANHO_CELULA // 2, y + TAMANHO_CELULA // 2
+                raio = max(TAMANHO_CELULA // 2 - 4, 3)
+                pygame.draw.circle(self.tela, grupo[0].cor, (cx, cy), raio)
+                pygame.draw.circle(self.tela, (0, 0, 0), (cx, cy), raio, 1)
             else:
-                sub = CELL_SIZE // 2
-                for i, agent in enumerate(group):
-                    dx, dy = offsets_2x2[i % 4]
+                sub = TAMANHO_CELULA // 2
+                for i, agente in enumerate(grupo):
+                    dx, dy = deslocamentos_2x2[i % 4]
                     cx, cy = x + dx * sub + sub // 2, y + dy * sub + sub // 2
-                    radius = max(sub // 2 - 1, 2)
-                    pygame.draw.circle(self.screen, agent.color, (cx, cy), radius)
-                    pygame.draw.circle(self.screen, (0, 0, 0), (cx, cy), radius, 1)
+                    raio = max(sub // 2 - 1, 2)
+                    pygame.draw.circle(self.tela, agente.cor, (cx, cy), raio)
+                    pygame.draw.circle(self.tela, (0, 0, 0), (cx, cy), raio, 1)
 
-    def _draw_divider(self, panel_x, panel_w, y):
-        pygame.draw.line(self.screen, COLOR_DIVIDER, (panel_x + 14, y), (panel_x + panel_w - 14, y), 1)
+    def _desenhar_divisor(self, x_painel, largura_painel, y):
+        pygame.draw.line(self.tela, COR_DIVISOR, (x_painel + 14, y), (x_painel + largura_painel - 14, y), 1)
 
-    def draw_sidebar(self):
-        ox, oy = self.origin
-        maze_px = self.maze.size * CELL_SIZE
-        panel_x = ox + maze_px + MARGIN
-        panel_y = oy
-        panel_w = SIDEBAR_WIDTH - MARGIN
-        panel_h = self.maze.size * CELL_SIZE
+    def desenhar_painel_lateral(self):
+        ox, oy = self.origem
+        px_labirinto = self.labirinto.tamanho * TAMANHO_CELULA
+        x_painel = ox + px_labirinto + MARGEM
+        y_painel = oy
+        largura_painel = LARGURA_PAINEL - MARGEM
+        altura_painel = self.labirinto.tamanho * TAMANHO_CELULA
 
-        pygame.draw.rect(self.screen, COLOR_PANEL, (panel_x, panel_y, panel_w, panel_h), border_radius=10)
+        pygame.draw.rect(self.tela, COR_PAINEL, (x_painel, y_painel, largura_painel, altura_painel), border_radius=10)
 
-        y = panel_y + 14
-        title = self.font_bold.render(f"Rodada {self.round_num} / {self.total_rounds}", True, COLOR_TEXT)
-        self.screen.blit(title, (panel_x + 14, y))
+        y = y_painel + 14
+        titulo = self.fonte_negrito.render(f"Rodada {self.numero_rodada} / {self.total_rodadas}", True, COR_TEXTO)
+        self.tela.blit(titulo, (x_painel + 14, y))
         y += 36
-        self._draw_divider(panel_x, panel_w, y)
+        self._desenhar_divisor(x_painel, largura_painel, y)
         y += 14
 
-        header = self.font_bold.render("Placar (acumulado)", True, COLOR_TEXT)
-        self.screen.blit(header, (panel_x + 14, y))
+        cabecalho = self.fonte_negrito.render("Placar (acumulado)", True, COR_TEXTO)
+        self.tela.blit(cabecalho, (x_painel + 14, y))
         y += 26
 
-        ranking = sorted(self.agents, key=lambda a: self.scores[a.name], reverse=True)
-        for agent in ranking:
-            pygame.draw.circle(self.screen, agent.color, (panel_x + 22, y + 9), 8)
-            pygame.draw.circle(self.screen, (0, 0, 0), (panel_x + 22, y + 9), 8, 1)
-            text = self.font.render(f"{agent.short_label}: {self.scores[agent.name]} pts", True, COLOR_TEXT)
-            self.screen.blit(text, (panel_x + 38, y))
+        classificacao = sorted(self.agentes, key=lambda a: self.placar[a.nome], reverse=True)
+        for agente in classificacao:
+            pygame.draw.circle(self.tela, agente.cor, (x_painel + 22, y + 9), 8)
+            pygame.draw.circle(self.tela, (0, 0, 0), (x_painel + 22, y + 9), 8, 1)
+            texto = self.fonte.render(f"{agente.rotulo}: {self.placar[agente.nome]} pts", True, COR_TEXTO)
+            self.tela.blit(texto, (x_painel + 38, y))
             y += 24
 
         y += 10
-        self._draw_divider(panel_x, panel_w, y)
+        self._desenhar_divisor(x_painel, largura_painel, y)
         y += 14
 
-        header2 = self.font_bold.render("Status da rodada", True, COLOR_TEXT)
-        self.screen.blit(header2, (panel_x + 14, y))
+        cabecalho2 = self.fonte_negrito.render("Status da rodada", True, COR_TEXTO)
+        self.tela.blit(cabecalho2, (x_painel + 14, y))
         y += 24
 
-        for agent in self.agents:
-            state = "chegou!" if agent.finished else "em andamento"
-            text = self.font.render(f"{agent.short_label}: {agent.steps_taken} passos ({state})", True, COLOR_TEXT)
-            self.screen.blit(text, (panel_x + 14, y))
+        for agente in self.agentes:
+            estado = "chegou!" if agente.concluido else "em andamento"
+            texto = self.fonte.render(f"{agente.rotulo}: {agente.passos_dados} passos ({estado})", True, COR_TEXTO)
+            self.tela.blit(texto, (x_painel + 14, y))
             y += 20
 
         y += 14
-        self._draw_divider(panel_x, panel_w, y)
+        self._desenhar_divisor(x_painel, largura_painel, y)
         y += 10
 
-        legend_lines = [
+        legenda = [
             "Legenda:",
             "• Ponto vermelho: objetivo",
-            "• Pontos azuis pequenos: spawns fixos",
+            "• Pontos azuis pequenos: pontos de partida",
             "• Célula amarela: mais de 1 agente ali",
         ]
-        for line in legend_lines:
-            text = self.font.render(line, True, COLOR_TEXT)
-            self.screen.blit(text, (panel_x + 14, y))
+        for linha in legenda:
+            texto = self.fonte.render(linha, True, COR_TEXTO)
+            self.tela.blit(texto, (x_painel + 14, y))
             y += 18
 
-    def draw_top_status(self):
-        text = self.font.render(self.status_message, True, COLOR_TEXT)
-        self.screen.blit(text, (self.origin[0], 12))
+    def desenhar_status_superior(self):
+        texto = self.fonte.render(self.mensagem_status, True, COR_TEXTO)
+        self.tela.blit(texto, (self.origem[0], 12))
 
-    def draw_final_screen_overlay(self):
-        if not self.game_over:
+    def desenhar_tela_final(self):
+        if not self.jogo_encerrado:
             return
-        ox, oy = self.origin
-        maze_px = self.maze.size * CELL_SIZE
-        overlay = pygame.Surface((maze_px, maze_px), pygame.SRCALPHA)
-        overlay.fill((255, 255, 255, 210))
-        self.screen.blit(overlay, (ox, oy))
+        ox, oy = self.origem
+        px_labirinto = self.labirinto.tamanho * TAMANHO_CELULA
+        sobreposicao = pygame.Surface((px_labirinto, px_labirinto), pygame.SRCALPHA)
+        sobreposicao.fill((255, 255, 255, 210))
+        self.tela.blit(sobreposicao, (ox, oy))
 
-        ranking = sorted(self.agents, key=lambda a: self.scores[a.name], reverse=True)
-        title = self.font_title.render("Resultado Final", True, COLOR_TEXT)
-        self.screen.blit(title, (ox + maze_px // 2 - title.get_width() // 2, oy + 30))
+        classificacao = sorted(self.agentes, key=lambda a: self.placar[a.nome], reverse=True)
+        titulo = self.fonte_titulo.render("Resultado Final", True, COR_TEXTO)
+        self.tela.blit(titulo, (ox + px_labirinto // 2 - titulo.get_width() // 2, oy + 30))
 
         y = oy + 90
-        for i, agent in enumerate(ranking):
-            text = self.font_bold.render(
-                f"{i + 1}º lugar: {agent.short_label} — {self.scores[agent.name]} pts", True, agent.color
+        for i, agente in enumerate(classificacao):
+            texto = self.fonte_negrito.render(
+                f"{i + 1}º lugar: {agente.rotulo} — {self.placar[agente.nome]} pts", True, agente.cor
             )
-            self.screen.blit(text, (ox + maze_px // 2 - text.get_width() // 2, y))
+            self.tela.blit(texto, (ox + px_labirinto // 2 - texto.get_width() // 2, y))
             y += 34
 
-    def draw(self):
-        self.screen.fill(COLOR_BG)
-        self.draw_top_status()
-        self.draw_maze()
-        self.draw_agents_layer()
-        self.draw_final_screen_overlay()
-        self.draw_sidebar()
+    def desenhar(self):
+        self.tela.fill(COR_FUNDO)
+        self.desenhar_status_superior()
+        self.desenhar_labirinto()
+        self.desenhar_camada_agentes()
+        self.desenhar_tela_final()
+        self.desenhar_painel_lateral()
 
-        mouse_pos = pygame.mouse.get_pos()
-        self.btn_restart.draw(self.screen, self.font, mouse_pos)
-        self.btn_next.draw(self.screen, self.font, mouse_pos)
+        posicao_mouse = pygame.mouse.get_pos()
+        self.botao_reiniciar.desenhar(self.tela, self.fonte, posicao_mouse)
+        self.botao_proxima.desenhar(self.tela, self.fonte, posicao_mouse)
 
         pygame.display.flip()
 
-    def _render_status_only(self):
+    def _mostrar_status(self):
         """Mostra uma mensagem de 'carregando' enquanto o treino do RL ou a
         evolução do GA acontecem, evitando a sensação de tela travada."""
-        self.screen.fill(COLOR_BG)
-        self.draw_top_status()
+        self.tela.fill(COR_FUNDO)
+        self.desenhar_status_superior()
         pygame.display.flip()
         pygame.event.pump()
 
     # ------------------------------------------------------------------
     # Loop principal
     # ------------------------------------------------------------------
-    def run(self):
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self._handle_click(event.pos)
+    def executar(self):
+        rodando = True
+        while rodando:
+            for evento in pygame.event.get():
+                if evento.type == pygame.QUIT:
+                    rodando = False
+                elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                    self._tratar_clique(evento.pos)
 
-            self.update()
-            self.draw()
-            self.clock.tick(60)
+            self.atualizar()
+            self.desenhar()
+            self.relogio.tick(60)
 
         pygame.quit()
         sys.exit()
 
 
 if __name__ == "__main__":
-    GameApp().run()
+    Jogo().executar()
