@@ -126,18 +126,18 @@ Caso algum agente não alcance o objetivo dentro do tempo disponível, o desempa
 ├── README.md
 ├── requirements.txt
 ├── main.py
-├── game.py
-├── maze.py
-├── agents.py
+├── jogo.py
+├── labirinto.py
+├── agentes.py
 └── __pycache__/
 ```
 
 | Arquivo | Descrição |
 |---------|-----------|
 | `main.py` | Ponto de entrada da aplicação |
-| `game.py` | Interface gráfica, placar, botões e lógica da competição |
-| `maze.py` | Geração do labirinto, BFS e seleção dos spawns |
-| `agents.py` | Implementação dos agentes A*, Q-Learning e Algoritmo Genético |
+| `jogo.py` | Interface gráfica, placar, botões e lógica da competição |
+| `labirinto.py` | Geração do labirinto, BFS e seleção dos spawns |
+| `agentes.py` | Implementação dos agentes A*, Q-Learning e Algoritmo Genético |
 
 ---
 
@@ -198,7 +198,7 @@ Uma janela será aberta contendo:
 
 Os principais parâmetros podem ser alterados diretamente no código:
 
-**game.py**
+**jogo.py**
 
 - tamanho do labirinto;
 - velocidade da simulação;
@@ -206,7 +206,7 @@ Os principais parâmetros podem ser alterados diretamente no código:
 - tamanho das células;
 - quantidade de conexões extras.
 
-**agents.py**
+**agentes.py**
 
 - taxa de aprendizado;
 - fator de desconto;
