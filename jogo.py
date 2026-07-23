@@ -1,15 +1,3 @@
-"""
-game.py
--------
-Interface visual (pygame) da competição entre os três agentes.
-
-- Pontos de partida fixos, sorteados a cada rodada com distância justa:
-  ver maze.py (Labirinto._selecionar_pontos_justos) e _iniciar_rodada() abaixo.
-- Camada de sobreposição (2+ agentes na mesma célula): desenhar_camada_agentes().
-- Placar por rodada: _encerrar_rodada().
-- Botões de reiniciar e pular rodada: _tratar_clique().
-"""
-
 import random
 import sys
 import pygame
@@ -18,9 +6,7 @@ from labirinto import Labirinto
 from agentes import AgenteAEstrela, AgenteQLearning, AgenteGenetico
 
 
-# ----------------------------------------------------------------------
 # Configurações visuais e de jogo
-# ----------------------------------------------------------------------
 TAMANHO_CELULA = 26
 TAMANHO_LABIRINTO = 17     # labirinto médio (17x17 células)
 CONEXOES_EXTRAS = 0.15     # fração de paredes extras abertas -> mais caminhos
@@ -34,7 +20,7 @@ MARGEM = 20
 COR_FUNDO = (250, 248, 240)
 COR_PAREDE = (40, 40, 40)
 COR_FUNDO_LABIRINTO = (255, 255, 255)
-COR_OBJETIVO = (220, 60, 60)
+COR_OBJETIVO = (60, 0, 220)
 COR_MARCA_PARTIDA = (120, 120, 200)
 COR_SOBREPOSICAO_FUNDO = (255, 210, 0)
 COR_SOBREPOSICAO_BORDA = (170, 110, 0)
@@ -102,9 +88,7 @@ class Jogo:
         self.mensagem_status = ""
         self._reiniciar_tudo()
 
-    # ------------------------------------------------------------------
     # Ciclo de vida do jogo
-    # ------------------------------------------------------------------
     def _reiniciar_tudo(self):
         self.numero_rodada = 0
         self.jogo_encerrado = False
@@ -170,14 +154,10 @@ class Jogo:
                 if agente.concluido and agente not in self.ordem_chegada:
                     self.ordem_chegada.append(agente)
 
-        # A rodada só termina automaticamente quando TODOS os agentes
-        # chegam ao objetivo (ou quando o usuário clica em "Pular").
         if all(a.concluido for a in self.agentes):
             self._encerrar_rodada()
 
-    # ------------------------------------------------------------------
     # Entrada do usuário
-    # ------------------------------------------------------------------
     def _tratar_clique(self, posicao):
         if self.botao_reiniciar.foi_clicado(posicao):
             self._reiniciar_tudo()
@@ -190,9 +170,7 @@ class Jogo:
             if not self.jogo_encerrado:
                 self._iniciar_rodada()
 
-    # ------------------------------------------------------------------
     # Desenho
-    # ------------------------------------------------------------------
     def desenhar_labirinto(self):
         ox, oy = self.origem
         tamanho_px = self.labirinto.tamanho * TAMANHO_CELULA
@@ -224,8 +202,6 @@ class Jogo:
         )
 
     def desenhar_camada_agentes(self):
-        """Destaca em amarelo qualquer célula onde 2+ agentes estejam juntos,
-        desenhando cada um em um quadrante da célula para todos ficarem visíveis."""
         ox, oy = self.origem
         grupos = {}
         for agente in self.agentes:
@@ -355,16 +331,12 @@ class Jogo:
         pygame.display.flip()
 
     def _mostrar_status(self):
-        """Mostra uma mensagem de 'carregando' enquanto o treino do RL ou a
-        evolução do GA acontecem, evitando a sensação de tela travada."""
         self.tela.fill(COR_FUNDO)
         self.desenhar_status_superior()
         pygame.display.flip()
         pygame.event.pump()
 
-    # ------------------------------------------------------------------
     # Loop principal
-    # ------------------------------------------------------------------
     def executar(self):
         rodando = True
         while rodando:
@@ -380,7 +352,6 @@ class Jogo:
 
         pygame.quit()
         sys.exit()
-
 
 if __name__ == "__main__":
     Jogo().executar()

@@ -1,18 +1,3 @@
-"""
-maze.py
--------
-Geração do labirinto e escolha dos pontos de partida "justos".
-
-Ideia central: o labirinto é um grafo de células, onde cada aresta aberta
-é um movimento válido. A distância entre duas células é sempre calculada
-por BFS (busca em largura), que garante o menor número de passos.
-
-Justiça dos pontos de partida: olhamos as células da borda, calculamos a
-distância de cada uma até o objetivo, e escolhemos um grupo com a MESMA
-distância. Assim, não importa em qual desses pontos um agente nasça, o
-caminho mais curto até o centro tem o mesmo tamanho.
-"""
-
 import random
 from collections import deque, defaultdict
 
@@ -37,9 +22,7 @@ class Labirinto:
         self.distancias = self._distancias_por_bfs(self.objetivo)
         self.pontos_partida, self.distancia_partida = self._selecionar_pontos_justos(n_pontos_partida)
 
-    # ------------------------------------------------------------------
     # Geometria básica do grid
-    # ------------------------------------------------------------------
     def dentro_dos_limites(self, celula):
         linha, coluna = celula
         return 0 <= linha < self.tamanho and 0 <= coluna < self.tamanho
@@ -54,9 +37,7 @@ class Labirinto:
     def passavel(self, a, b):
         return frozenset((a, b)) in self.arestas_abertas
 
-    # ------------------------------------------------------------------
     # Geração do labirinto
-    # ------------------------------------------------------------------
     def _gerar_labirinto_perfeito(self):
         """Recursive backtracker: gera um labirinto "perfeito" (existe
         exatamente um caminho entre quaisquer duas células)."""
@@ -84,9 +65,6 @@ class Labirinto:
         return arestas
 
     def _adicionar_atalhos(self, fracao):
-        """Abre uma fração extra de paredes fechadas, criando ciclos e
-        caminhos alternativos (um labirinto perfeito só tem um caminho
-        entre dois pontos; aqui adicionamos opções extras)."""
         if fracao <= 0:
             return
         fechadas = list(self._todas_arestas() - self.arestas_abertas)
@@ -94,9 +72,7 @@ class Labirinto:
         n_abrir = int(len(fechadas) * fracao)
         self.arestas_abertas.update(fechadas[:n_abrir])
 
-    # ------------------------------------------------------------------
     # Busca em largura (BFS)
-    # ------------------------------------------------------------------
     def _distancias_por_bfs(self, inicio):
         """Distância (em passos) do ponto `inicio` até cada célula alcançável."""
         distancias = {inicio: 0}
@@ -110,7 +86,6 @@ class Labirinto:
         return distancias
 
     def caminho_mais_curto(self, inicio, objetivo):
-        """Caminho mais curto (BFS) entre duas células, ou None se não existir."""
         if inicio == objetivo:
             return [inicio]
         anterior = {inicio: None}
@@ -134,9 +109,7 @@ class Labirinto:
         caminho.reverse()
         return caminho
 
-    # ------------------------------------------------------------------
     # Seleção justa dos pontos de partida
-    # ------------------------------------------------------------------
     def _celulas_da_borda(self):
         celulas = set()
         for i in range(self.tamanho):
@@ -148,9 +121,6 @@ class Labirinto:
         return list(celulas)
 
     def _selecionar_pontos_justos(self, k):
-        """Agrupa as células da borda por distância até o objetivo e
-        escolhe `k` delas dentro do grupo mais distante que tenha opções
-        suficientes (pontos difíceis, mas sempre igualmente distantes)."""
         grupos = defaultdict(list)
         for celula in self._celulas_da_borda():
             d = self.distancias.get(celula)
@@ -170,8 +140,6 @@ class Labirinto:
         return escolhidas, distancia_escolhida
 
     def _selecionar_espalhados(self, celulas, k):
-        """Escolhe k células tentando maximizar a distância entre elas,
-        para que os pontos de partida fiquem espalhados pelo labirinto."""
         if len(celulas) <= k:
             return list(celulas)
         escolhidas = [self.aleatorio.choice(celulas)]
